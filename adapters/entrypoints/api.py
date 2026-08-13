@@ -1,69 +1,46 @@
 from fastapi import APIRouter, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
-from typing import Optional
-from domain.models import Country, Property
-from domain.use_cases import CalculateROICase
+from domain.models import Country
+from domain.use_cases import AnalyzeZipCodeCase
+from adapters.outbound.market_data import ZillowDataGateway
 
 router = APIRouter()
 
-# --- CONFIGURACIÓN DE SEGURIDAD ---
-API_KEY_NAME = "X-API-Key"
-# auto_error=True hará que FastAPI lance un 403 automático si la cabecera no existe
-api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
-
-# Base de datos simulada de claves válidas
-VALID_API_KEYS = {"sk_live_realestate_777", "sk_test_123"}
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
 async def verify_api_key(api_key: str = Security(api_key_header)):
-    if api_key not in VALID_API_KEYS:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="API Key inválida"
-        )
+    if api_key != "sk_live_realestate_777":
+        raise HTTPException(status_code=401, detail="API Key inválida")
     return api_key
 
-# --- ESQUEMAS DTO ---
-class PropertyDTO(BaseModel):
+# ¡MIRA AQUÍ! Ahora FastAPI sabe que debe esperar un zip_code
+class ZipCodeRequestDTO(BaseModel):
     country: Country
-    price: float = Field(..., gt=0)
-    monthly_rent: float = Field(..., gt=0)
-    annual_expenses: Optional[float] = Field(None, ge=0)
+    zip_code: str = Field(..., description="Ejemplo: 33139")
 
 class ROIResponseDTO(BaseModel):
-    country: str
-    property_price: float
-    gross_annual_rent: float
-    estimated_expenses: float
-    net_annual_income: float
+    zip_code_analyzed: str
+    average_property_price: float
+    average_monthly_rent: float
     cap_rate_percentage: float
-    ai_investment_verdict: str
+    market_intelligence_verdict: str
 
-# --- ENDPOINT PROTEGIDO ---
-# Añadimos la dependencia de seguridad inyectando api_key
-@router.post("/calculate-roi", response_model=ROIResponseDTO)
-def calculate_roi_endpoint(
-    data: PropertyDTO, 
-    api_key: str = Security(verify_api_key) # <-- BARRERA DE SEGURIDAD
-):
+@router.post("/analyze-market", response_model=ROIResponseDTO)
+def analyze_market_endpoint(data: ZipCodeRequestDTO, api_key: str = Security(verify_api_key)):
     try:
-        domain_property = Property(
-            country=data.country,
-            price=data.price,
-            monthly_rent=data.monthly_rent,
-            annual_expenses=data.annual_expenses
-        )
-        use_case = CalculateROICase()
-        result = use_case.execute(domain_property)
+        # Conectamos Zillow con nuestro cerebro
+        zillow_gateway = ZillowDataGateway()
+        use_case = AnalyzeZipCodeCase(data_gateway=zillow_gateway)
+        
+        result = use_case.execute(zip_code=data.zip_code, country=data.country)
 
         return ROIResponseDTO(
-            country=result.country.value,
-            property_price=result.property_price,
-            gross_annual_rent=result.gross_annual_rent,
-            estimated_expenses=result.estimated_expenses,
-            net_annual_income=result.net_annual_income,
+            zip_code_analyzed=data.zip_code,
+            average_property_price=result.property_price,
+            average_monthly_rent=result.gross_annual_rent / 12,
             cap_rate_percentage=result.cap_rate,
-            ai_investment_verdict=result.verdict
+            market_intelligence_verdict=result.verdict
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
