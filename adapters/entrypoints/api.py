@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
@@ -7,13 +8,14 @@ from adapters.outbound.market_data import ZillowDataGateway
 
 router = APIRouter()
 
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
+api_key_header = APIKeyHeader(name="X-RapidAPI-Proxy-Secret", auto_error=True)
 
+# 2. El portero compara la contraseña con la que guardaste en Render
 async def verify_api_key(api_key: str = Security(api_key_header)):
-    if api_key != "sk_live_realestate_777":
+    if api_key != os.getenv("PROXY_SECRET"):
         raise HTTPException(status_code=401, detail="API Key inválida")
     return api_key
-
+    
 # ¡MIRA AQUÍ! Ahora FastAPI sabe que debe esperar un zip_code
 class ZipCodeRequestDTO(BaseModel):
     country: Country
