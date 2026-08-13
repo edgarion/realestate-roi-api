@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Security, status
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from typing import Optional
 from domain.models import Country, Property
@@ -6,6 +7,23 @@ from domain.use_cases import CalculateROICase
 
 router = APIRouter()
 
+# --- CONFIGURACIÓN DE SEGURIDAD ---
+API_KEY_NAME = "X-API-Key"
+# auto_error=True hará que FastAPI lance un 403 automático si la cabecera no existe
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
+
+# Base de datos simulada de claves válidas
+VALID_API_KEYS = {"sk_live_realestate_777", "sk_test_123"}
+
+async def verify_api_key(api_key: str = Security(api_key_header)):
+    if api_key not in VALID_API_KEYS:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="API Key inválida"
+        )
+    return api_key
+
+# --- ESQUEMAS DTO ---
 class PropertyDTO(BaseModel):
     country: Country
     price: float = Field(..., gt=0)
@@ -21,8 +39,13 @@ class ROIResponseDTO(BaseModel):
     cap_rate_percentage: float
     ai_investment_verdict: str
 
+# --- ENDPOINT PROTEGIDO ---
+# Añadimos la dependencia de seguridad inyectando api_key
 @router.post("/calculate-roi", response_model=ROIResponseDTO)
-def calculate_roi_endpoint(data: PropertyDTO):
+def calculate_roi_endpoint(
+    data: PropertyDTO, 
+    api_key: str = Security(verify_api_key) # <-- BARRERA DE SEGURIDAD
+):
     try:
         domain_property = Property(
             country=data.country,
